@@ -29,9 +29,19 @@
 
     <script>
         // Configuración dinámica
-        const firebaseConfig = JSON.parse(__firebase_config); 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'compras-v3-public';
-        
+// --- CONFIGURACIÓN MANUAL PARA GITHUB ---
+const firebaseConfig = {
+  apiKey: "AIzaSyD4uoKvSgO_yballbNqdpJEmj3ffKr988Q",
+  authDomain: "ahorremos-juntos.firebaseapp.com",
+  projectId: "ahorremos-juntos",
+  storageBucket: "ahorremos-juntos.firebasestorage.app",
+  messagingSenderId: "515324567648",
+  appId: "1:515324567648:web:b1cd1ec5b82f643aeda305",
+  measurementId: "G-3R32R3L21D"
+};
+
+const appId = "ahorremos-juntos-web";
+// ----------------------------------------        
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         const auth = firebase.auth();
@@ -180,4 +190,5 @@
         init();
     </script>
 </body>
+
 </html>
