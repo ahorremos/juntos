@@ -40,12 +40,12 @@ const firebaseConfig = {
   measurementId: "G-3R32R3L21D"
 };
 
+// Inicialización obligatoria
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const auth = firebase.auth();
 const appId = "ahorremos-juntos-web";
-// ----------------------------------------        
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        const auth = firebase.auth();
-
+// ----------------------------------------
         const urlParams = new URLSearchParams(window.location.search);
         const groupId = urlParams.get('group') || 'vecinos-principal';
 
@@ -192,3 +192,4 @@ const appId = "ahorremos-juntos-web";
 </body>
 
 </html>
+
