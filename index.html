@@ -49,7 +49,6 @@
         let state = {
             user: null,
             products: [],
-            stock: {},
             isAdmin: false,
             copySuccess: false,
             sendingOrder: false
@@ -67,7 +66,6 @@
             } catch (e) { console.error(e); }
         }
 
-        // --- FUNCIÓN DE CARGA CSV (ADMIN) ---
         async function handleCSV(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -75,34 +73,41 @@
             const reader = new FileReader();
             reader.onload = async (e) => {
                 const text = e.target.result;
-                const rows = text.split('\n').slice(1); // Omitir cabecera
+                const rows = text.split(/\r?\n/).filter(row => row.trim() !== "");
+                const dataRows = rows.slice(1); // Omitir cabecera
                 
-                Swal.fire({ title: 'Procesando catálogo...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
+                Swal.fire({ title: 'Cargando catálogo...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); }});
 
-                const batch = db.batch();
-                const collectionPath = `artifacts/${appId}/public/data/lista_${groupId}`;
-                
-                // Limpiar actuales (opcional, pero recomendado para sincronizar)
-                state.products.forEach(p => {
-                    batch.delete(db.doc(`${collectionPath}/${p.id}`));
-                });
+                try {
+                    const collectionPath = `artifacts/${appId}/public/data/lista_${groupId}`;
+                    const batch = db.batch();
 
-                rows.forEach(row => {
-                    const [nombre, precio, meta] = row.split(',');
-                    if (nombre && precio && meta) {
-                        const newDoc = db.collection(collectionPath).doc();
-                        batch.set(newDoc, {
-                            name: nombre.trim(),
-                            price: parseFloat(precio),
-                            target: parseInt(meta),
-                            totalSelected: 0,
-                            participants: {}
-                        });
-                    }
-                });
+                    // Borrar productos anteriores
+                    state.products.forEach(p => {
+                        batch.delete(db.doc(`${collectionPath}/${p.id}`));
+                    });
 
-                await batch.commit();
-                Swal.fire('¡Éxito!', 'Catálogo actualizado correctamente', 'success');
+                    dataRows.forEach(row => {
+                        const columns = row.split(',');
+                        if (columns.length >= 3) {
+                            const [nombre, precio, meta] = columns;
+                            const newDoc = db.collection(collectionPath).doc();
+                            batch.set(newDoc, {
+                                name: nombre.trim(),
+                                price: parseFloat(precio.trim()),
+                                target: parseInt(meta.trim()),
+                                totalSelected: 0,
+                                participants: {}
+                            });
+                        }
+                    });
+
+                    await batch.commit();
+                    Swal.fire('¡Éxito!', 'Los productos se cargaron correctamente.', 'success');
+                } catch (err) {
+                    console.error(err);
+                    Swal.fire('Error', 'No se pudo subir el CSV. Revisa el formato.', 'error');
+                }
             };
             reader.readAsText(file);
         }
@@ -145,13 +150,6 @@
             state.sendingOrder = false; render();
         }
 
-        function calculateLogistics(p) {
-            const demand = p.totalSelected || 0;
-            const boxes = Math.floor(demand / p.target);
-            const extra = demand % p.target;
-            return { boxes, extra };
-        }
-
         function render() {
             const appDiv = document.getElementById('app');
             const totalPropio = state.products.reduce((acc, p) => acc + (((p.participants && p.participants[state.user.uid]) || 0) * p.price), 0);
@@ -161,57 +159,68 @@
                 mainContent = `
                     <div class="bg-slate-900 text-white p-6 rounded-[2rem] shadow-xl mb-6">
                         <div class="flex justify-between items-center mb-6">
-                            <h2 class="text-xl font-bold flex items-center gap-2"><i data-lucide="settings"></i> Panel Admin</h2>
-                            <label class="bg-blue-600 px-4 py-2 rounded-xl text-xs font-bold cursor-pointer hover:bg-blue-700 transition-colors">
-                                <i data-lucide="upload" class="inline mr-1" size="14"></i> SUBIR CSV
+                            <h2 class="text-xl font-bold flex items-center gap-2"><i data-lucide="package"></i> Panel Logístico</h2>
+                            <label class="bg-blue-600 px-4 py-2 rounded-xl text-xs font-black cursor-pointer hover:bg-blue-700 transition-all flex items-center gap-2">
+                                <i data-lucide="upload" size="14"></i> SUBIR CSV
                                 <input type="file" accept=".csv" class="hidden" onchange="handleCSV(event)">
                             </label>
                         </div>
-                        <div class="space-y-3">
-                            ${state.products.map(p => {
-                                const log = calculateLogistics(p);
-                                return `
-                                    <div class="bg-slate-800 p-4 rounded-xl flex justify-between items-center border border-slate-700">
-                                        <div>
-                                            <div class="font-bold">${p.name}</div>
-                                            <div class="text-[10px] text-slate-400">Piden: ${p.totalSelected} | Meta: ${p.target}</div>
+                        
+                        ${state.products.length === 0 ? 
+                            `<p class="text-slate-500 text-sm italic py-4 text-center">No hay productos. Sube un CSV para empezar.</p>` : 
+                            `<div class="space-y-3">
+                                ${state.products.map(p => {
+                                    const boxes = Math.floor(p.totalSelected / p.target);
+                                    const extra = p.totalSelected % p.target;
+                                    return `
+                                        <div class="bg-slate-800 p-4 rounded-xl flex justify-between items-center border border-slate-700">
+                                            <div>
+                                                <div class="font-bold text-sm">${p.name}</div>
+                                                <div class="text-[10px] text-slate-400">Total pedido: ${p.totalSelected} uds</div>
+                                            </div>
+                                            <div class="text-right">
+                                                <div class="text-green-400 font-black text-lg">${boxes} Cajas</div>
+                                                <div class="text-red-400 text-[10px] font-bold">+${extra} sueltos</div>
+                                            </div>
                                         </div>
-                                        <div class="text-right">
-                                            <div class="text-green-400 font-black text-lg">${log.boxes} Cajas</div>
-                                            <div class="text-red-400 text-[10px] font-bold">+${log.extra} Sueltos</div>
-                                        </div>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
+                                    `;
+                                }).join('')}
+                            </div>`
+                        }
                     </div>
                 `;
             } else {
                 mainContent = `
                     <div class="space-y-3">
-                        ${state.products.map(p => {
-                            const myQty = (p.participants && p.participants[state.user.uid]) || 0;
-                            const progress = ((p.totalSelected % p.target) / p.target) * 100;
-                            return `
-                                <div class="bg-white rounded-[1.5rem] p-5 shadow-sm border border-slate-100">
-                                    <div class="flex justify-between mb-3">
-                                        <h3 class="font-bold">${p.name}</h3>
-                                        <span class="text-blue-600 font-bold text-sm">Lote: ${p.target}</span>
-                                    </div>
-                                    <div class="h-2 bg-slate-100 rounded-full mb-4 overflow-hidden">
-                                        <div class="progress-bar h-full bg-blue-600" style="width: ${progress}%"></div>
-                                    </div>
-                                    <div class="flex justify-between items-center">
-                                        <span class="text-xl font-black">$${p.price.toLocaleString()}</span>
-                                        <div class="flex items-center gap-4 bg-slate-900 text-white px-4 py-2 rounded-xl">
-                                            <button onclick="updateQty('${p.id}', -1)" class="font-bold">-</button>
-                                            <span class="font-bold min-w-[15px] text-center">${myQty}</span>
-                                            <button onclick="updateQty('${p.id}', 1)" class="font-bold">+</button>
+                        ${state.products.length === 0 ? 
+                            `<div class="text-center py-20 bg-white rounded-[2rem] border-2 border-dashed border-slate-200">
+                                <i data-lucide="package" class="mx-auto text-slate-300 mb-2" size="40"></i>
+                                <p class="text-slate-400 font-bold text-sm">Esperando productos...</p>
+                            </div>` : 
+                            state.products.map(p => {
+                                const myQty = (p.participants && p.participants[state.user.uid]) || 0;
+                                const progress = ((p.totalSelected % p.target) / p.target) * 100;
+                                return `
+                                    <div class="bg-white rounded-[1.5rem] p-5 shadow-sm border border-slate-100">
+                                        <div class="flex justify-between mb-3">
+                                            <h3 class="font-bold text-slate-800">${p.name}</h3>
+                                            <span class="text-blue-600 font-bold text-xs uppercase">Lote: ${p.target}u</span>
+                                        </div>
+                                        <div class="h-2 bg-slate-100 rounded-full mb-4 overflow-hidden">
+                                            <div class="progress-bar h-full bg-blue-600" style="width: ${progress}%"></div>
+                                        </div>
+                                        <div class="flex justify-between items-center">
+                                            <span class="text-2xl font-black text-slate-900">$${p.price.toLocaleString()}</span>
+                                            <div class="flex items-center gap-4 bg-slate-900 text-white px-4 py-2 rounded-2xl">
+                                                <button onclick="updateQty('${p.id}', -1)" class="font-bold text-xl">-</button>
+                                                <span class="font-bold min-w-[20px] text-center">${myQty}</span>
+                                                <button onclick="updateQty('${p.id}', 1)" class="font-bold text-xl">+</button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            `;
-                        }).join('')}
+                                `;
+                            }).join('')
+                        }
                     </div>
                 `;
             }
@@ -219,8 +228,11 @@
             appDiv.innerHTML = `
                 <header class="bg-white/90 backdrop-blur-md border-b p-4 sticky top-0 z-20">
                     <div class="max-w-xl mx-auto flex justify-between items-center">
-                        <h1 class="font-black text-slate-800 uppercase text-sm tracking-tighter">🛒 ${groupId.replace(/-/g, ' ')}</h1>
-                        <button onclick="state.isAdmin = !state.isAdmin; render()" class="text-[10px] font-black border-2 px-3 py-1 rounded-full ${state.isAdmin ? 'bg-black text-white' : 'text-slate-400'}">
+                        <div class="flex items-center gap-2">
+                            <div class="bg-blue-600 p-1.5 rounded-lg text-white"><i data-lucide="building-2" size="16"></i></div>
+                            <h1 class="font-black text-slate-800 uppercase text-xs tracking-tight">${groupId.replace(/-/g, ' ')}</h1>
+                        </div>
+                        <button onclick="state.isAdmin = !state.isAdmin; render()" class="text-[10px] font-black border-2 px-3 py-1 rounded-full transition-all ${state.isAdmin ? 'bg-black text-white border-black' : 'text-slate-400 border-slate-200'}">
                             ${state.isAdmin ? 'MODO ADMIN' : 'ADMIN'}
                         </button>
                     </div>
@@ -231,9 +243,9 @@
                     <div class="max-w-xl mx-auto flex justify-between items-center">
                         <div>
                             <p class="text-[10px] font-black text-slate-400">MI TOTAL</p>
-                            <p class="text-3xl font-black">$${totalPropio.toLocaleString()}</p>
+                            <p class="text-3xl font-black text-slate-900">$${totalPropio.toLocaleString()}</p>
                         </div>
-                        <button onclick="submitOrder()" class="bg-blue-600 text-white px-8 py-4 rounded-2xl font-black shadow-lg">ENVIAR</button>
+                        <button onclick="submitOrder()" class="bg-blue-600 text-white px-10 py-4 rounded-2xl font-black shadow-xl active:scale-95 transition-all">ENVIAR</button>
                     </div>
                 </footer>` : ''}
             `;
